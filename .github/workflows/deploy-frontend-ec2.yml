@@ -35,6 +35,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run linter
+        env:
+          CI: true
+        run: npm run lint
+
       - name: Build React app
         env:
           REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL || '/api' }}
