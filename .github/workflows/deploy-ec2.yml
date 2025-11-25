@@ -98,11 +98,13 @@ jobs:
             sudo mkdir -p $DEPLOY_DIR
             sudo mkdir -p $BACKUP_DIR
             
-            # Extract deployment package (ignore permission warnings for /tmp)
-            cd /tmp
-            tar -xzf deploy-package.tar.gz --no-same-owner --no-same-permissions 2>&1 || {
-              # If tar fails, try without permission flags (warnings are non-critical)
-              tar -xzf deploy-package.tar.gz 2>&1 | grep -v "Cannot utime\|Cannot change mode" || true
+            # Extract deployment package to user-owned directory to avoid permission issues
+            EXTRACT_DIR="/tmp/deploy-$(date +%s)"
+            mkdir -p $EXTRACT_DIR
+            cd $EXTRACT_DIR
+            tar -xzf /tmp/deploy-package.tar.gz --no-same-owner --no-same-permissions 2>&1 | grep -v "Cannot utime\|Cannot change mode" || {
+              # Extract ignoring permission errors (non-critical warnings)
+              tar -xzf /tmp/deploy-package.tar.gz 2>&1 | grep -v "Cannot utime\|Cannot change mode" || true
             }
             
             # Backup existing JAR if it exists
