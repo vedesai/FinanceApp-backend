@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'frontend/**'
   workflow_dispatch:
 
 env:
@@ -29,27 +27,24 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.npm
-          key: ${{ runner.os }}-node-${{ hashFiles('frontend/package-lock.json') }}
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
             ${{ runner.os }}-node-
 
       - name: Install dependencies
-        working-directory: ./frontend
         run: npm ci
 
       - name: Build React app
-        working-directory: ./frontend
         env:
           REACT_APP_API_URL: ${{ secrets.REACT_APP_API_URL || '/api' }}
           NODE_ENV: production
         run: npm run build
 
       - name: Create deployment package
-        working-directory: ./frontend
         run: |
           mkdir -p deploy-package
           cp -r build/* deploy-package/
-          cp ../.github/workflows/nginx-frontend.conf deploy-package/nginx-frontend.conf 2>/dev/null || echo "# Nginx config will be created on EC2" > deploy-package/nginx-frontend.conf
+          cp .github/workflows/nginx-frontend.conf deploy-package/nginx-frontend.conf 2>/dev/null || echo "# Nginx config will be created on EC2" > deploy-package/nginx-frontend.conf
           tar -czf deploy-package.tar.gz -C deploy-package .
 
       - name: Configure SSH
@@ -143,7 +138,7 @@ jobs:
           scp -i ~/.ssh/deploy_key \
               -o StrictHostKeyChecking=no \
               -o ConnectTimeout=10 \
-              frontend/deploy-package.tar.gz \
+              deploy-package.tar.gz \
               ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/
           
           ssh -i ~/.ssh/deploy_key \
@@ -285,5 +280,5 @@ jobs:
         if: always()
         run: |
           rm -f ~/.ssh/deploy_key
-          rm -rf frontend/deploy-package frontend/deploy-package.tar.gz
+          rm -rf deploy-package deploy-package.tar.gz
 
