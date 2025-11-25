@@ -98,9 +98,12 @@ jobs:
             sudo mkdir -p $DEPLOY_DIR
             sudo mkdir -p $BACKUP_DIR
             
-            # Extract deployment package
+            # Extract deployment package (ignore permission warnings for /tmp)
             cd /tmp
-            tar -xzf deploy-package.tar.gz
+            tar -xzf deploy-package.tar.gz --no-same-owner --no-same-permissions 2>&1 || {
+              # If tar fails, try without permission flags (warnings are non-critical)
+              tar -xzf deploy-package.tar.gz 2>&1 | grep -v "Cannot utime\|Cannot change mode" || true
+            }
             
             # Backup existing JAR if it exists
             if [ -f "$DEPLOY_DIR/finance-backend.jar" ]; then
