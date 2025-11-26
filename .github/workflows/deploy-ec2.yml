@@ -1,11 +1,13 @@
-name: Deploy to AWS EC2
+name: Deploy Spring Boot Application to AWS EC2
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'backend/**'
+      - 'src/**'
+      - 'pom.xml'
+      - 'scripts/**'
   workflow_dispatch:
 
 env:
@@ -28,13 +30,12 @@ jobs:
           cache: maven
 
       - name: Build with Maven
-        working-directory: ./backend
         run: mvn clean package -DskipTests
 
       - name: Create deployment package
-        working-directory: ./backend
         run: |
           mkdir -p deploy-package
+          # Copy the built JAR file (Maven creates finance-backend-1.0.0.jar)
           cp target/finance-backend-*.jar deploy-package/finance-backend.jar
           cp scripts/deploy.sh deploy-package/
           cp scripts/finance-app.service deploy-package/
@@ -43,23 +44,32 @@ jobs:
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
           echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts 2>&1 || true
 
       - name: Deploy to EC2
         run: |
           scp -i ~/.ssh/deploy_key \
-              backend/deploy-package.tar.gz \
+              -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=10 \
+              deploy-package.tar.gz \
               ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/
           
           ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=10 \
               ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
-              'bash -s' << 'EOF'
+              'bash -s' << 'DEPLOY_EOF'
             set -e
             DEPLOY_DIR="/opt/finance-app"
             BACKUP_DIR="/opt/finance-app/backups"
             TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+            # Use ubuntu as default user (matches systemd service file)
+            SERVICE_USER="ubuntu"
+            
+            echo "Starting deployment..."
             
             # Create directories if they don't exist
             sudo mkdir -p $DEPLOY_DIR
@@ -71,44 +81,81 @@ jobs:
             
             # Backup existing JAR if it exists
             if [ -f "$DEPLOY_DIR/finance-backend.jar" ]; then
+              echo "Backing up existing JAR..."
               sudo cp $DEPLOY_DIR/finance-backend.jar $BACKUP_DIR/finance-backend-$TIMESTAMP.jar
+              echo "Backup created: $BACKUP_DIR/finance-backend-$TIMESTAMP.jar"
             fi
             
             # Stop the service
+            echo "Stopping service..."
             sudo systemctl stop finance-app || true
             
             # Copy new JAR
+            echo "Copying new JAR..."
             sudo cp finance-backend.jar $DEPLOY_DIR/
-            sudo chown ec2-user:ec2-user $DEPLOY_DIR/finance-backend.jar
+            sudo chown $SERVICE_USER:$SERVICE_USER $DEPLOY_DIR/finance-backend.jar
+            sudo chmod 644 $DEPLOY_DIR/finance-backend.jar
             
-            # Copy and setup systemd service if it doesn't exist
-            if [ ! -f /etc/systemd/system/finance-app.service ]; then
-              sudo cp finance-app.service /etc/systemd/system/
-              sudo systemctl daemon-reload
-              sudo systemctl enable finance-app
-            fi
+            # Copy and setup systemd service if it doesn't exist or update it
+            echo "Setting up systemd service..."
+            sudo cp finance-app.service /etc/systemd/system/
+            sudo systemctl daemon-reload
+            sudo systemctl enable finance-app || true
+            
+            # Ensure environment file directory exists
+            sudo mkdir -p $DEPLOY_DIR
+            sudo chown $SERVICE_USER:$SERVICE_USER $DEPLOY_DIR
             
             # Start the service
+            echo "Starting service..."
             sudo systemctl start finance-app
             
             # Wait a bit and check status
             sleep 5
-            sudo systemctl status finance-app --no-pager || true
+            if sudo systemctl is-active --quiet finance-app; then
+              echo "✓ Service started successfully!"
+              sudo systemctl status finance-app --no-pager -l || true
+            else
+              echo "⚠ Service may have issues starting. Checking status..."
+              sudo systemctl status finance-app --no-pager -l || true
+              echo "Checking logs..."
+              sudo journalctl -u finance-app -n 50 --no-pager || true
+            fi
             
             # Cleanup
             rm -rf /tmp/deploy-package.tar.gz /tmp/deploy-package
             
-            echo "Deployment completed successfully!"
-          EOF
+            echo "Deployment completed!"
+          DEPLOY_EOF
 
       - name: Verify deployment
         run: |
           ssh -i ~/.ssh/deploy_key \
+              -o StrictHostKeyChecking=no \
+              -o ConnectTimeout=10 \
               ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
-              'sudo systemctl is-active finance-app && echo "Service is running" || exit 1'
+              'bash -s' << 'VERIFY_EOF'
+            echo "=== Service Status ==="
+            sudo systemctl status finance-app --no-pager -l || true
+            echo ""
+            echo "=== Service Active Check ==="
+            if sudo systemctl is-active --quiet finance-app; then
+              echo "✓ Service is running successfully!"
+              echo ""
+              echo "=== Recent Logs ==="
+              sudo journalctl -u finance-app -n 20 --no-pager || true
+              exit 0
+            else
+              echo "❌ Service is not running!"
+              echo ""
+              echo "=== Error Logs ==="
+              sudo journalctl -u finance-app -n 50 --no-pager || true
+              exit 1
+            fi
+          VERIFY_EOF
 
       - name: Cleanup
         if: always()
         run: |
           rm -f ~/.ssh/deploy_key
-          rm -rf backend/deploy-package backend/deploy-package.tar.gz
+          rm -rf deploy-package deploy-package.tar.gz
