@@ -39,7 +39,10 @@ jobs:
           cp target/finance-backend-*.jar deploy-package/finance-backend.jar
           cp scripts/deploy.sh deploy-package/
           cp scripts/finance-app.service deploy-package/
-          tar -czf deploy-package.tar.gz -C deploy-package .
+          # Create tar archive (permission warnings during extraction are harmless)
+          cd deploy-package
+          tar -czf ../deploy-package.tar.gz finance-backend.jar deploy.sh finance-app.service
+          cd ..
 
       - name: Configure SSH
         run: |
@@ -75,9 +78,18 @@ jobs:
             sudo mkdir -p $DEPLOY_DIR
             sudo mkdir -p $BACKUP_DIR
             
-            # Extract deployment package
-            cd /tmp
-            tar -xzf deploy-package.tar.gz
+            # Extract deployment package to a temporary directory
+            EXTRACT_DIR="/tmp/deploy-extract-$$"
+            mkdir -p $EXTRACT_DIR
+            cd $EXTRACT_DIR
+            # Extract tar archive (suppress harmless permission warnings)
+            tar -xzf /tmp/deploy-package.tar.gz 2>&1 | grep -vE "(Cannot utime|Cannot change mode)" || true
+            # Verify extraction succeeded
+            if [ ! -f finance-backend.jar ]; then
+              echo "Error: Failed to extract finance-backend.jar from deployment package"
+              exit 1
+            fi
+            echo "✓ Successfully extracted deployment package"
             
             # Backup existing JAR if it exists
             if [ -f "$DEPLOY_DIR/finance-backend.jar" ]; then
@@ -92,13 +104,13 @@ jobs:
             
             # Copy new JAR
             echo "Copying new JAR..."
-            sudo cp finance-backend.jar $DEPLOY_DIR/
+            sudo cp $EXTRACT_DIR/finance-backend.jar $DEPLOY_DIR/
             sudo chown $SERVICE_USER:$SERVICE_USER $DEPLOY_DIR/finance-backend.jar
             sudo chmod 644 $DEPLOY_DIR/finance-backend.jar
             
             # Copy and setup systemd service if it doesn't exist or update it
             echo "Setting up systemd service..."
-            sudo cp finance-app.service /etc/systemd/system/
+            sudo cp $EXTRACT_DIR/finance-app.service /etc/systemd/system/
             sudo systemctl daemon-reload
             sudo systemctl enable finance-app || true
             
@@ -123,7 +135,7 @@ jobs:
             fi
             
             # Cleanup
-            rm -rf /tmp/deploy-package.tar.gz /tmp/deploy-package
+            rm -rf /tmp/deploy-package.tar.gz $EXTRACT_DIR
             
             echo "Deployment completed!"
           DEPLOY_EOF
