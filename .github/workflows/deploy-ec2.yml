@@ -1,13 +1,11 @@
-name: Deploy Spring Boot Application to AWS EC2
+name: Deploy to AWS EC2
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'src/**'
-      - 'pom.xml'
-      - 'scripts/**'
+      - 'backend/**'
   workflow_dispatch:
 
 env:
@@ -30,144 +28,141 @@ jobs:
           cache: maven
 
       - name: Build with Maven
+        working-directory: ./backend
         run: mvn clean package -DskipTests
 
       - name: Create deployment package
+        working-directory: ./backend
         run: |
           mkdir -p deploy-package
-          # Copy the built JAR file (Maven creates finance-backend-1.0.0.jar)
           cp target/finance-backend-*.jar deploy-package/finance-backend.jar
           cp scripts/deploy.sh deploy-package/
           cp scripts/finance-app.service deploy-package/
-          # Create tar archive (permission warnings during extraction are harmless)
-          cd deploy-package
-          tar -czf ../deploy-package.tar.gz finance-backend.jar deploy.sh finance-app.service
-          cd ..
+          tar -czf deploy-package.tar.gz -C deploy-package .
 
       - name: Configure SSH
         run: |
           mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
           echo "${{ secrets.EC2_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts 2>&1 || true
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
       - name: Deploy to EC2
         run: |
           scp -i ~/.ssh/deploy_key \
-              -o StrictHostKeyChecking=no \
-              -o ConnectTimeout=10 \
-              deploy-package.tar.gz \
+              backend/deploy-package.tar.gz \
               ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/
           
           ssh -i ~/.ssh/deploy_key \
-              -o StrictHostKeyChecking=no \
-              -o ConnectTimeout=10 \
               ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
-              'bash -s' << 'DEPLOY_EOF'
+              'bash -s' << 'EOF'
             set -e
             DEPLOY_DIR="/opt/finance-app"
             BACKUP_DIR="/opt/finance-app/backups"
             TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-            # Use ubuntu as default user (matches systemd service file)
-            SERVICE_USER="ubuntu"
-            
-            echo "Starting deployment..."
             
             # Create directories if they don't exist
             sudo mkdir -p $DEPLOY_DIR
             sudo mkdir -p $BACKUP_DIR
             
-            # Extract deployment package to a temporary directory
-            EXTRACT_DIR="/tmp/deploy-extract-$$"
-            mkdir -p $EXTRACT_DIR
-            cd $EXTRACT_DIR
-            # Extract tar archive (suppress harmless permission warnings)
-            tar -xzf /tmp/deploy-package.tar.gz 2>&1 | grep -vE "(Cannot utime|Cannot change mode)" || true
-            # Verify extraction succeeded
-            if [ ! -f finance-backend.jar ]; then
-              echo "Error: Failed to extract finance-backend.jar from deployment package"
-              exit 1
-            fi
-            echo "✓ Successfully extracted deployment package"
+            # Extract deployment package
+            cd /tmp
+            tar -xzf deploy-package.tar.gz
             
             # Backup existing JAR if it exists
             if [ -f "$DEPLOY_DIR/finance-backend.jar" ]; then
-              echo "Backing up existing JAR..."
               sudo cp $DEPLOY_DIR/finance-backend.jar $BACKUP_DIR/finance-backend-$TIMESTAMP.jar
-              echo "Backup created: $BACKUP_DIR/finance-backend-$TIMESTAMP.jar"
             fi
             
             # Stop the service
-            echo "Stopping service..."
             sudo systemctl stop finance-app || true
             
             # Copy new JAR
-            echo "Copying new JAR..."
-            sudo cp $EXTRACT_DIR/finance-backend.jar $DEPLOY_DIR/
-            sudo chown $SERVICE_USER:$SERVICE_USER $DEPLOY_DIR/finance-backend.jar
-            sudo chmod 644 $DEPLOY_DIR/finance-backend.jar
+            sudo cp finance-backend.jar $DEPLOY_DIR/
+            sudo chown ec2-user:ec2-user $DEPLOY_DIR/finance-backend.jar
             
-            # Copy and setup systemd service if it doesn't exist or update it
-            echo "Setting up systemd service..."
-            sudo cp $EXTRACT_DIR/finance-app.service /etc/systemd/system/
-            sudo systemctl daemon-reload
-            sudo systemctl enable finance-app || true
+            # Copy and setup systemd service if it doesn't exist
+            if [ ! -f /etc/systemd/system/finance-app.service ]; then
+              sudo cp finance-app.service /etc/systemd/system/
+              sudo systemctl daemon-reload
+              sudo systemctl enable finance-app
+            else
+              # Reload systemd if service file exists (in case it was updated)
+              sudo systemctl daemon-reload
+            fi
             
-            # Ensure environment file directory exists
-            sudo mkdir -p $DEPLOY_DIR
-            sudo chown $SERVICE_USER:$SERVICE_USER $DEPLOY_DIR
+            # Restart the service to ensure it picks up the new JAR
+            echo "Restarting finance-app service..."
+            sudo systemctl restart finance-app
             
-            # Start the service
-            echo "Starting service..."
-            sudo systemctl start finance-app
-            
-            # Wait a bit and check status
+            # Wait a bit for the service to fully start
             sleep 5
+            
+            # Check service status
             if sudo systemctl is-active --quiet finance-app; then
-              echo "✓ Service started successfully!"
+              echo "✓ Service is running successfully"
               sudo systemctl status finance-app --no-pager -l || true
             else
-              echo "⚠ Service may have issues starting. Checking status..."
+              echo "❌ Service failed to start!"
               sudo systemctl status finance-app --no-pager -l || true
-              echo "Checking logs..."
               sudo journalctl -u finance-app -n 50 --no-pager || true
+              exit 1
             fi
             
             # Cleanup
-            rm -rf /tmp/deploy-package.tar.gz $EXTRACT_DIR
+            rm -rf /tmp/deploy-package.tar.gz /tmp/deploy-package
             
-            echo "Deployment completed!"
-          DEPLOY_EOF
+            echo "Deployment completed successfully!"
+          EOF
 
       - name: Verify deployment
         run: |
           ssh -i ~/.ssh/deploy_key \
-              -o StrictHostKeyChecking=no \
-              -o ConnectTimeout=10 \
               ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} \
               'bash -s' << 'VERIFY_EOF'
-            echo "=== Service Status ==="
-            sudo systemctl status finance-app --no-pager -l || true
-            echo ""
-            echo "=== Service Active Check ==="
+            echo "=== Verifying finance-app service ==="
+            
+            # Check if service is active
             if sudo systemctl is-active --quiet finance-app; then
-              echo "✓ Service is running successfully!"
-              echo ""
-              echo "=== Recent Logs ==="
-              sudo journalctl -u finance-app -n 20 --no-pager || true
-              exit 0
+              echo "✓ Service is active"
             else
-              echo "❌ Service is not running!"
-              echo ""
-              echo "=== Error Logs ==="
-              sudo journalctl -u finance-app -n 50 --no-pager || true
+              echo "❌ Service is not active!"
+              sudo systemctl status finance-app --no-pager -l || true
               exit 1
             fi
+            
+            # Check if service is enabled
+            if sudo systemctl is-enabled --quiet finance-app; then
+              echo "✓ Service is enabled"
+            else
+              echo "⚠️  Service is not enabled (will not start on boot)"
+            fi
+            
+            # Show service status
+            echo ""
+            echo "=== Service Status ==="
+            sudo systemctl status finance-app --no-pager -l || true
+            
+            # Show recent logs
+            echo ""
+            echo "=== Recent Service Logs ==="
+            sudo journalctl -u finance-app -n 20 --no-pager || true
+            
+            # Check if port is listening (assuming default Spring Boot port 8080)
+            echo ""
+            echo "=== Port Check ==="
+            if sudo netstat -tlnp 2>/dev/null | grep ":8080 " || sudo ss -tlnp 2>/dev/null | grep ":8080 "; then
+              echo "✓ Port 8080 is listening"
+            else
+              echo "⚠️  Port 8080 is not listening (service may still be starting)"
+            fi
+            
+            echo ""
+            echo "✓ Deployment verification completed successfully!"
           VERIFY_EOF
 
       - name: Cleanup
         if: always()
         run: |
           rm -f ~/.ssh/deploy_key
-          rm -rf deploy-package deploy-package.tar.gz
+          rm -rf backend/deploy-package backend/deploy-package.tar.gz
