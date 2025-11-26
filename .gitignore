@@ -1,23 +1,21 @@
-# Database files
-*.db
-*.mv.db
-*.trace.db
+# Maven
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
 
 # IDE
 .idea/
-.vscode/
 *.iml
-*.ipr
-*.iws
+.vscode/
+*.swp
+*.swo
+*~
 
-# OS
-.DS_Store
-Thumbs.db
 
 # Logs
 *.log
 
-# Environment variables
-.env
-.env.local
-
+# OS
+.DS_Store
+Thumbs.db
