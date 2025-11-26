@@ -112,4 +112,3 @@ jobs:
         run: |
           rm -f ~/.ssh/deploy_key
           rm -rf backend/deploy-package backend/deploy-package.tar.gz
-
