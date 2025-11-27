@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'backend/**'
   workflow_dispatch:
 
 env:
@@ -28,11 +26,9 @@ jobs:
           cache: maven
 
       - name: Build with Maven
-        working-directory: ./backend
         run: mvn clean package -DskipTests
 
       - name: Create deployment package
-        working-directory: ./backend
         run: |
           mkdir -p deploy-package
           cp target/finance-backend-*.jar deploy-package/finance-backend.jar
@@ -50,7 +46,7 @@ jobs:
       - name: Deploy to EC2
         run: |
           scp -i ~/.ssh/deploy_key \
-              backend/deploy-package.tar.gz \
+              deploy-package.tar.gz \
               ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/
           
           ssh -i ~/.ssh/deploy_key \
@@ -165,4 +161,4 @@ jobs:
         if: always()
         run: |
           rm -f ~/.ssh/deploy_key
-          rm -rf backend/deploy-package backend/deploy-package.tar.gz
+          rm -rf deploy-package deploy-package.tar.gz
