@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.DecimalMin;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
@@ -29,6 +30,9 @@ public class Asset {
 
     @Column(length = 500)
     private String description;
+
+    @Column(name = "purchased_date")
+    private LocalDate purchasedDate;
 
     @Column(name = "created_at")
     private LocalDateTime createdAt;
@@ -88,6 +92,14 @@ public class Asset {
         this.description = description;
     }
 
+    public LocalDate getPurchasedDate() {
+        return purchasedDate;
+    }
+
+    public void setPurchasedDate(LocalDate purchasedDate) {
+        this.purchasedDate = purchasedDate;
+    }
+
     public LocalDateTime getCreatedAt() {
         return createdAt;
     }
@@ -104,4 +116,3 @@ public class Asset {
         this.updatedAt = updatedAt;
     }
 }
-
