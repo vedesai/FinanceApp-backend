@@ -35,6 +35,7 @@ public class AssetService {
         asset.setAssetType(assetDetails.getAssetType());
         asset.setValue(assetDetails.getValue());
         asset.setDescription(assetDetails.getDescription());
+        asset.setPurchasedDate(assetDetails.getPurchasedDate());
         
         return assetRepository.save(asset);
     }
@@ -45,4 +46,3 @@ public class AssetService {
         assetRepository.delete(asset);
     }
 }
-
