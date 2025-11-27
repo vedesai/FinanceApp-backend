@@ -65,18 +65,20 @@ public class AssetController {
         StringBuilder csv = new StringBuilder();
         
         // CSV Header
-        csv.append("ID,Name,Asset Type,Value,Description,Created At,Updated At\n");
+        csv.append("ID,Name,Asset Type,Value,Description,Purchased Date,Created At,Updated At\n");
         
         // CSV Data
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         for (Asset asset : assets) {
             csv.append(asset.getId()).append(",");
             csv.append(escapeCsv(asset.getName())).append(",");
             csv.append(escapeCsv(asset.getAssetType())).append(",");
             csv.append(asset.getValue()).append(",");
             csv.append(escapeCsv(asset.getDescription() != null ? asset.getDescription() : "")).append(",");
-            csv.append(asset.getCreatedAt() != null ? asset.getCreatedAt().format(formatter) : "").append(",");
-            csv.append(asset.getUpdatedAt() != null ? asset.getUpdatedAt().format(formatter) : "").append("\n");
+            csv.append(asset.getPurchasedDate() != null ? asset.getPurchasedDate().format(dateFormatter) : "").append(",");
+            csv.append(asset.getCreatedAt() != null ? asset.getCreatedAt().format(dateTimeFormatter) : "").append(",");
+            csv.append(asset.getUpdatedAt() != null ? asset.getUpdatedAt().format(dateTimeFormatter) : "").append("\n");
         }
         
         HttpHeaders headers = new HttpHeaders();
@@ -98,4 +100,3 @@ public class AssetController {
         return value;
     }
 }
-
