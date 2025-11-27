@@ -32,9 +32,13 @@ jobs:
         run: |
           mkdir -p deploy-package
           cp target/finance-backend-*.jar deploy-package/finance-backend.jar
-          cp scripts/deploy.sh deploy-package/
-          cp scripts/finance-app.service deploy-package/
-          tar -czf deploy-package.tar.gz -C deploy-package .
+          if [ -f scripts/deploy.sh ]; then
+            cp scripts/deploy.sh deploy-package/
+          fi
+          if [ -f scripts/finance-app.service ]; then
+            cp scripts/finance-app.service deploy-package/
+          fi
+          tar -czf deploy-package.tar.gz -C deploy-package --no-same-owner --no-same-permissions .
 
       - name: Configure SSH
         run: |
@@ -81,7 +85,7 @@ jobs:
             if [ ! -f /etc/systemd/system/finance-app.service ]; then
               sudo cp finance-app.service /etc/systemd/system/
               sudo systemctl daemon-reload
-              sudo systemctl enable finance-app
+              sudo sudo systemctl enable finance-app
             else
               # Reload systemd if service file exists (in case it was updated)
               sudo systemctl daemon-reload
