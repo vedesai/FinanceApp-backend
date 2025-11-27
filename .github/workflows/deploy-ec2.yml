@@ -39,9 +39,12 @@ jobs:
             cp scripts/finance-app.service deploy-package/
           fi
           # Create tar archive by listing files explicitly to avoid permission issues
-          (cd deploy-package && tar -czf ../deploy-package.tar.gz finance-backend.jar finance-app.service deploy.sh 2>/dev/null || \
-           cd deploy-package && tar -czf ../deploy-package.tar.gz finance-backend.jar finance-app.service 2>/dev/null || \
-           cd deploy-package && tar -czf ../deploy-package.tar.gz finance-backend.jar)
+          cd deploy-package
+          TAR_FILES="finance-backend.jar"
+          [ -f finance-app.service ] && TAR_FILES="$TAR_FILES finance-app.service"
+          [ -f deploy.sh ] && TAR_FILES="$TAR_FILES deploy.sh"
+          tar -czf ../deploy-package.tar.gz $TAR_FILES
+          cd ..
 
       - name: Configure SSH
         run: |
