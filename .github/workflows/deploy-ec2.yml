@@ -38,9 +38,10 @@ jobs:
           if [ -f scripts/finance-app.service ]; then
             cp scripts/finance-app.service deploy-package/
           fi
-          cd deploy-package
-          tar -czf ../deploy-package.tar.gz --no-same-owner --no-same-permissions *
-          cd ..
+          # Create tar archive by listing files explicitly to avoid permission issues
+          (cd deploy-package && tar -czf ../deploy-package.tar.gz finance-backend.jar finance-app.service deploy.sh 2>/dev/null || \
+           cd deploy-package && tar -czf ../deploy-package.tar.gz finance-backend.jar finance-app.service 2>/dev/null || \
+           cd deploy-package && tar -czf ../deploy-package.tar.gz finance-backend.jar)
 
       - name: Configure SSH
         run: |
