@@ -85,7 +85,7 @@ jobs:
             if [ ! -f /etc/systemd/system/finance-app.service ]; then
               sudo cp finance-app.service /etc/systemd/system/
               sudo systemctl daemon-reload
-              sudo sudo systemctl enable finance-app
+              sudo systemctl enable finance-app
             else
               # Reload systemd if service file exists (in case it was updated)
               sudo systemctl daemon-reload
